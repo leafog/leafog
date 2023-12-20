@@ -14,6 +14,8 @@ import jakarta.persistence.Id
 import jakarta.transaction.Transactional
 import jakarta.ws.rs.GET
 import jakarta.ws.rs.Path
+import org.eclipse.microprofile.config.ConfigProvider
+import org.eclipse.microprofile.config.inject.ConfigProperty
 import org.eclipse.microprofile.rest.client.inject.RegisterRestClient
 import org.eclipse.microprofile.rest.client.inject.RestClient
 import org.keycloak.admin.client.Keycloak
@@ -101,7 +103,6 @@ class KeycloakInit {
         val MINIO_CLIENT = ClientRepresentation().apply {
             clientId = "minio"
             protocol = "openid-connect"
-            secret = "testt"
             isPublicClient = false
             isServiceAccountsEnabled = false
             isStandardFlowEnabled = true
@@ -195,6 +196,9 @@ class Init(
     @RestClient
     lateinit var keycloakKeys: KeycloakKeys
 
+    @field:ConfigProperty(name = "minio-client-secret")
+    lateinit var minioSecret: String
+
     @Startup
     fun onStart() {
 //        Uni.createFrom()
@@ -202,6 +206,7 @@ class Init(
 //            .emitOn(Infrastructure.getDefaultWorkerPool())
 //            .subscribe()
 //            .with(this::init, Throwable::printStackTrace)
+
         this.init(InitContext(keycloak, confService, keycloakKeys, objectMapper, entityManager))
     }
 
@@ -233,6 +238,7 @@ class Init(
                          left join keycloak.user_attribute ua on ua.user_id = u.id
                 where r.name = '${KEYCLOAK_REALM_NAME}'
                 group by u.id;
+               
             """.trimIndent()
         ).executeUpdate()
         initKcClientScope(keycloak)
@@ -266,7 +272,9 @@ class Init(
 
     fun initKcMinioClient(keycloak: Keycloak) {
         val realm = keycloak.realm(KEYCLOAK_REALM_NAME)
-        realm.clients().create(KeycloakInit.MINIO_CLIENT)
+        realm.clients().create(KeycloakInit.MINIO_CLIENT.also {
+            it.secret = minioSecret
+        })
     }
 
     fun initKcTokenExChange(keycloak: Keycloak) {

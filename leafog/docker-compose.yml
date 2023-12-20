@@ -156,7 +156,7 @@ services:
 
       MINIO_IDENTITY_OPENID_CONFIG_URL: http://keycloak:8080/auth/realms/leafog/.well-known/openid-configuration
       MINIO_IDENTITY_OPENID_CLIENT_ID: minio
-      MINIO_IDENTITY_OPENID_CLIENT_SECRET: testt
+      MINIO_IDENTITY_OPENID_CLIENT_SECRET: ${MINIO_CLIENT_SECRET}
       MINIO_IDENTITY_OPENID_CLAIM_NAME: minio_policy
 
       MINIO_NOTIFY_POSTGRES_ENABLE_PG: on
@@ -198,5 +198,6 @@ services:
       KC_ADMIN: ${KC_ADMIN}
       KC_ADMIN_PASS: ${KC_ADMIN_PASS}
       KC_URL: http://keycloak:8080/auth
+      MINIO_CLIENT_SECRET: ${MINIO_CLIENT_SECRET}
 
 
