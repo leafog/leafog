@@ -38,5 +38,5 @@ nb-configuration.xml
 # Plugin directory
 /.quarkus/cli/plugins/
 
-leafog/volumes/postgres/db
-leafog/volumes/minio
+leafog/volumes/postgres/db/
+leafog/volumes/minio/

@@ -197,12 +197,12 @@ class Init(
 
     @Startup
     fun onStart() {
-        Uni.createFrom()
-            .item(InitContext(keycloak, confService, keycloakKeys, objectMapper, entityManager))
-            .emitOn(Infrastructure.getDefaultWorkerPool())
-            .subscribe()
-            .with(this::init, Throwable::printStackTrace)
-
+//        Uni.createFrom()
+//            .item()
+//            .emitOn(Infrastructure.getDefaultWorkerPool())
+//            .subscribe()
+//            .with(this::init, Throwable::printStackTrace)
+        this.init(InitContext(keycloak, confService, keycloakKeys, objectMapper, entityManager))
     }
 
 

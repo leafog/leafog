@@ -39,7 +39,7 @@ services:
 
   keycloak:
     container_name: keycloak
-    image: keycloak:0.11
+    image: keycloak
     labels:
       - "traefik.http.routers.keycloak.rule=PathPrefix(`/auth`)"
     command: start-dev --features token-exchange,admin2,account3,admin-fine-grained-authz
@@ -142,6 +142,12 @@ services:
       - 9090:9090
       - 9000:9000
     command: server --console-address ":9090"
+    healthcheck:
+      test: cat /proc/net/tcp | grep '00000000:2328 00000000:0000' || exit 1
+      interval: 5s
+      timeout: 2s
+      retries: 20
+      start_period: 120s
     environment:
       MINIO_ROOT_USER: ${MINIO_USER}
       MINIO_ROOT_PASSWORD: ${MINIO_PASS}
@@ -165,7 +171,7 @@ services:
       - ./volumes/minio/mnt/data:/mnt/data
   leafog:
     container_name: leafog
-    image: quarkus/leafog:0.03
+    image: quarkus/leafog
     labels:
       - "traefik.http.routers.leafog.rule=PathPrefix(`/leafog`)"
       - "traefik.http.routers.leafog.middlewares=stripprefix-leafog@docker"
