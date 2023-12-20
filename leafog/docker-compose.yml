@@ -1,0 +1,196 @@
+name: leafog
+version: "3.8"
+services:
+  reverse-proxy:
+
+    image: traefik:v2.10
+    container_name: leafog-reverse-proxy
+    command: --api.insecure=true --providers.docker
+    ports:
+      # The HTTP port
+      - "80:80"
+      # The Web UI (enabled by --api.insecure=true)
+      - "9988:8080"
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+
+  db:
+    container_name: db
+    image: postgres:16.1-alpine3.19
+    healthcheck:
+      test: pg_isready -U postgres -h localhost
+      interval: 5s
+      timeout: 5s
+      retries: 10
+    ports:
+      - 54325:5432
+    environment:
+      POSTGRES_USER: ${PG_USER}
+      POSTGRES_PASSWORD: ${PG_PASS}
+      PGDATABASE: ${PG_DB}
+    volumes:
+      - ./volumes/postgres/db/data:/var/lib/postgresql/data
+      - ./volumes/postgres/sql:/docker-entrypoint-initdb.d
+  adminer:
+    container_name: adminer
+    image: adminer
+    ports:
+      - 9989:8080
+
+  keycloak:
+    container_name: keycloak
+    image: keycloak:0.11
+    labels:
+      - "traefik.http.routers.keycloak.rule=PathPrefix(`/auth`)"
+    command: start-dev --features token-exchange,admin2,account3,admin-fine-grained-authz
+    depends_on:
+      db:
+        condition: service_healthy
+    healthcheck:
+      test: cat /proc/net/tcp | grep '00000000:1F90 00000000:0000' || exit 1
+      interval: 5s
+      timeout: 2s
+      retries: 20
+      start_period: 120s
+    environment:
+      KC_FEATURES: token_exchange
+      KEYCLOAK_ADMIN: ${KC_ADMIN}
+      KEYCLOAK_ADMIN_PASSWORD: ${KC_ADMIN_PASS}
+      KC_HOSTNAME_PATH: /auth
+      KC_HTTP_RELATIVE_PATH: /auth
+      KC_HOSTNAME_STRICT: false
+      KC_PROXY: reencrypt
+      KC_HEALTH_ENABLED: true
+
+      KC_DB: postgres
+      KC_DB_SCHEMA: keycloak
+
+      KC_DB_USERNAME: ${PG_USER}
+      KC_DB_PASSWORD: ${PG_PASS}
+      KC_DB_URL_HOST: ${PG_HOST}
+      KC_DB_URL_PORT: ${PG_PORT}
+      KC_DB_URL_DATABASE: ${PG_DB}
+
+
+  pgrst:
+    container_name: pgrst
+    image: postgrest/postgrest:v11.2.0
+    labels:
+      - "traefik.http.routers.pgrst.rule=PathPrefix(`/pgrst`)"
+      - "traefik.http.routers.pgrst.middlewares=stripprefix-pgrst@docker"
+      - "traefik.http.middlewares.stripprefix-pgrst.stripprefix.prefixes=/pgrst"
+      - "traefik.http.services.pgrst.loadbalancer.server.port=3000"
+    depends_on:
+      db:
+        condition: service_healthy
+      keycloak:
+        condition: service_healthy
+    command: postgrest
+    healthcheck:
+      test: cat /proc/net/tcp | grep '00000000:0BB8 00000000:0000' || exit 1
+      interval: 5s
+      timeout: 2s
+      retries: 20
+      start_period: 120s
+    environment:
+      PGRST_DB_URI: postgres://${PG_USER}:${PG_PASS}@${PG_HOST}:${PG_PORT}/${PG_DB}
+      PGRST_DB_SCHEMAS: ${PGRST_DB_SCHEMAS}
+      PGRST_JWT_ROLE_CLAIM_KEY: ${PGRST_JWT_ROLE_CLAIM_KEY}
+      PGRST_DB_ANON_ROLE: anon
+      PGRST_DB_MAX_ROWS: 2000
+      PGRST_DB_PRE_CONFIG: postgrest.pre_config
+      PGRST_JWT_AUD: account
+
+  meta:
+    container_name: meta
+    image: supabase/postgres-meta:v0.72.0
+    labels:
+      - "traefik.http.routers.meta.rule=PathPrefix(`/meta`)"
+      - "traefik.http.routers.meta.middlewares=stripprefix-meta@docker"
+      - "traefik.http.middlewares.stripprefix-meta.stripprefix.prefixes=/meta"
+    depends_on:
+      db:
+        condition: service_healthy
+    healthcheck:
+      test: cat /proc/net/tcp | grep '00000000:1F90 00000000:0000' || exit 1
+      interval: 5s
+      timeout: 2s
+      retries: 20
+      start_period: 120s
+    environment:
+      PG_META_PORT: 8080
+      PG_META_DB_HOST: ${PG_HOST}
+      PG_META_DB_PORT: ${PG_PORT}
+      PG_META_DB_NAME: ${PG_DB}
+      PG_META_DB_USER: ${PG_USER}
+      PG_META_DB_PASSWORD: ${PG_PASS}
+
+  minio:
+    container_name: minio
+    image: quay.io/minio/minio
+    labels:
+      - "traefik.http.routers.minio.rule=PathPrefix(`/minio`)"
+      - "traefik.http.routers.minio.middlewares=stripprefix-minio@docker"
+      - "traefik.http.middlewares.stripprefix-minio.stripprefix.prefixes=/minio"
+      - "traefik.http.services.minio.loadbalancer.server.port=9000"
+    depends_on:
+      keycloak:
+        condition: service_healthy
+      leafog:
+        condition: service_healthy
+    ports:
+      - 9090:9090
+      - 9000:9000
+    command: server --console-address ":9090"
+    environment:
+      MINIO_ROOT_USER: ${MINIO_USER}
+      MINIO_ROOT_PASSWORD: ${MINIO_PASS}
+      MINIO_VOLUMES: "/mnt/data"
+      MC_DEBUG: true
+
+      MINIO_IDENTITY_OPENID_CONFIG_URL: http://keycloak:8080/auth/realms/leafog/.well-known/openid-configuration
+      MINIO_IDENTITY_OPENID_CLIENT_ID: minio
+      MINIO_IDENTITY_OPENID_CLIENT_SECRET: testt
+      MINIO_IDENTITY_OPENID_CLAIM_NAME: minio_policy
+
+      MINIO_NOTIFY_POSTGRES_ENABLE_PG: on
+      MINIO_NOTIFY_POSTGRES_CONNECTION_STRING_PG: host=db dbname=${PG_DB} user=${PG_USER} password=${PG_PASS} port=${PG_PORT} sslmode=disable
+      MINIO_NOTIFY_POSTGRES_TABLE_PG: storage.event
+      MINIO_NOTIFY_POSTGRES_FORMAT_PG: access
+      MINIO_NOTIFY_POSTGRES_MAX_OPEN_CONNECTIONS_PG: 2
+      MINIO_NOTIFY_POSTGRES_QUEUE_DIR_PG: /opt/minio/events
+      MINIO_NOTIFY_POSTGRES_QUEUE_LIMIT_PG: 100000
+
+    volumes:
+      - ./volumes/minio/mnt/data:/mnt/data
+  leafog:
+    container_name: leafog
+    image: quarkus/leafog:0.03
+    labels:
+      - "traefik.http.routers.leafog.rule=PathPrefix(`/leafog`)"
+      - "traefik.http.routers.leafog.middlewares=stripprefix-leafog@docker"
+      - "traefik.http.middlewares.stripprefix-leafog.stripprefix.prefixes=/leafog"
+    depends_on:
+      db:
+        condition: service_healthy
+      keycloak:
+        condition: service_healthy
+      pgrst:
+        condition: service_healthy
+    healthcheck:
+      test: cat /proc/net/tcp | grep '00000000:1F90 00000000:0000' || exit 1
+      interval: 5s
+      timeout: 2s
+      retries: 20
+      start_period: 120s
+    environment:
+      PG_USER: ${PG_USER}
+      PG_PASS: ${PG_PASS}
+      PG_HOST: ${PG_HOST}
+      PG_PORT: ${PG_PORT}
+      PG_DB: ${PG_DB}
+      KC_ADMIN: ${KC_ADMIN}
+      KC_ADMIN_PASS: ${KC_ADMIN_PASS}
+      KC_URL: http://keycloak:8080/auth
+
+
