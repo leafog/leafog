@@ -7,8 +7,7 @@ create table postgrest.conf
     key   text primary key not null,
     value text             not null
 );
-insert into postgrest.conf
-values ('pgrst.db_schemas', 'public,auth');
+
 
 
 create or replace function postgrest.pre_config()
@@ -41,41 +40,77 @@ $$
 declare
     old_value_length int;
     new_value_length int;
+    schema_names     text[];
+    schema_item      text;
+    old_schema_names text[];
+    ole_schema_item  text;
 begin
 
     if new.key = 'pgrst.db_schemas' THEN
         old_value_length := char_length(old.value);
         if old_value_length > 0 then
+            old_schema_names := string_to_array(old.value, ',');
+            foreach ole_schema_item in array old_schema_names
+                loop
+                    execute 'drop function if exists ' || ole_schema_item || '.graphql;';
+                end loop;
+
             execute 'revoke usage on schema  ' || old.value || ' from account,anon;';
             execute 'revoke all on all tables in schema ' || old.value || ' from account,anon;';
-            execute 'revoke all on all routines in schema ' || old.value || ' FROM account, anon;';
+            execute 'revoke all on all functions in schema ' || old.value || ' FROM account, anon;';
             execute 'revoke all on all sequences in schema ' || old.value || ' FROM account, anon;';
             execute 'alter default privileges for role postgres in schema ' || old.value ||
                     ' revoke all on tables from anon,account;';
             execute 'alter default privileges for role postgres in schema ' || old.value ||
-                    ' revoke all on routines from anon,account;';
+                    ' revoke all on functions from anon,account;';
             execute 'alter default privileges for role postgres in schema ' || old.value ||
                     ' revoke all on sequences from anon,account;';
         end if;
         new_value_length := char_length(new.value);
         if new_value_length > 0 then
+            schema_names := string_to_array(new.value, ',');
+            foreach schema_item IN ARRAY schema_names
+                loop
+                    execute '
+                        create or replace function ' || schema_item || '.graphql(
+                            "operationName" text default null,
+                            query text default null,
+                            variables jsonb default null,
+                            extensions jsonb default null
+                        )
+                            returns jsonb
+                            language sql
+                        as
+                        $BODY$
+                        select graphql.resolve(
+                                       query := query,
+                                       variables := coalesce(variables, ''{}''),
+                                       "operationName" := "operationName",
+                                       extensions := extensions
+                               );
+                        $BODY$;
+                        ';
+                end loop;
             execute 'grant usage on schema ' || new.value || ' to account,anon;';
             execute 'grant all on all tables in schema ' || new.value || ' to account,anon;';
-            execute 'grant all on all routines in schema ' || new.value || ' to account, anon;';
+            execute 'grant all on all functions in schema ' || new.value || ' to account, anon;';
             execute 'grant all on all sequences in schema ' || new.value || ' to account, anon;';
             execute 'alter default privileges for role postgres in schema ' || new.value ||
                     ' grant all on tables to anon,account;';
             execute 'alter default privileges for role postgres in schema ' || new.value ||
-                    ' grant all on routines to anon,account;';
+                    ' grant all on functions to anon,account;';
             execute 'alter default privileges for role postgres in schema ' || new.value ||
                     ' grant all on sequences to anon,account;';
         end if;
 
+
     end if;
     return new;
+
 end;
 $$ language plpgsql;
 ---
+
 
 --- check schemas
 create or replace function postgrest.check_schemas()
@@ -123,14 +158,14 @@ execute function postgrest.check_schemas();
 
 
 -- watch CREATE and ALTER
-CREATE OR REPLACE FUNCTION pgrst_ddl_watch() RETURNS event_trigger AS
+create or replace function postgrest.pgrst_ddl_watch() returns event_trigger AS
 $$
-DECLARE
+declare
     cmd record;
-BEGIN
-    FOR cmd IN SELECT * FROM pg_event_trigger_ddl_commands()
-        LOOP
-            IF cmd.command_tag IN (
+begin
+    for cmd in select * from pg_event_trigger_ddl_commands()
+        loop
+            if cmd.command_tag IN (
                                    'CREATE SCHEMA', 'ALTER SCHEMA', 'CREATE TABLE', 'CREATE TABLE AS', 'SELECT INTO',
                                    'ALTER TABLE', 'CREATE FOREIGN TABLE', 'ALTER FOREIGN TABLE', 'CREATE VIEW',
                                    'ALTER VIEW', 'CREATE MATERIALIZED VIEW', 'ALTER MATERIALIZED VIEW',
@@ -138,38 +173,43 @@ BEGIN
                                    'CREATE RULE', 'COMMENT'
                 )
                 -- don't notify in case of CREATE TEMP table or other objects created on pg_temp
-                AND cmd.schema_name is distinct from 'pg_temp'
-            THEN
-                NOTIFY pgrst, 'reload schema';
-            END IF;
-        END LOOP;
-END;
-$$ LANGUAGE plpgsql;
+                and cmd.schema_name is distinct from 'pg_temp'
+            then
+                notify pgrst, 'reload schema';
+            end if;
+        end loop;
+end;
+$$ language plpgsql;
 
 -- watch DROP
-CREATE OR REPLACE FUNCTION pgrst_drop_watch() RETURNS event_trigger AS
+create or replace function postgrest.pgrst_drop_watch() returns event_trigger AS
 $$
-DECLARE
+declare
     obj record;
-BEGIN
-    FOR obj IN SELECT * FROM pg_event_trigger_dropped_objects()
-        LOOP
-            IF obj.object_type IN (
+begin
+    for obj in
+        select *
+        from pg_event_trigger_dropped_objects()
+        loop
+            if obj.object_type in (
                                    'schema', 'table', 'foreign table', 'view', 'materialized view', 'function',
                                    'trigger', 'type', 'rule'
                 )
-                AND obj.is_temporary IS false -- no pg_temp objects
-            THEN
-                NOTIFY pgrst, 'reload schema';
-            END IF;
-        END LOOP;
-END;
-$$ LANGUAGE plpgsql;
+                and obj.is_temporary is false -- no pg_temp objects
+            then
+                notify pgrst, 'reload schema';
+            end if;
+        end loop;
+end;
+$$ language plpgsql;
 
-CREATE EVENT TRIGGER pgrst_ddl_watch
-    ON ddl_command_end
-EXECUTE PROCEDURE pgrst_ddl_watch();
 
-CREATE EVENT TRIGGER pgrst_drop_watch
-    ON sql_drop
-EXECUTE PROCEDURE pgrst_drop_watch();
+create event trigger pgrst_ddl_watch
+    on ddl_command_end
+execute procedure postgrest.pgrst_ddl_watch();
+
+create event trigger pgrst_drop_watch
+    on sql_drop
+execute procedure postgrest.pgrst_drop_watch();
+
+

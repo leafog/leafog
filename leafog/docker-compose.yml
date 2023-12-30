@@ -16,7 +16,7 @@ services:
 
   db:
     container_name: db
-    image: postgres:16.1-alpine3.19
+    image: pg:1
     healthcheck:
       test: pg_isready -U postgres -h localhost
       interval: 5s
@@ -24,6 +24,11 @@ services:
       retries: 10
     ports:
       - 54325:5432
+    command:
+      - postgres
+      - -c
+      - config_file=/etc/postgresql/postgresql.conf
+
     environment:
       POSTGRES_USER: ${PG_USER}
       POSTGRES_PASSWORD: ${PG_PASS}
@@ -31,6 +36,7 @@ services:
     volumes:
       - ./volumes/postgres/db/data:/var/lib/postgresql/data
       - ./volumes/postgres/sql:/docker-entrypoint-initdb.d
+      - ./volumes/postgres/leafog-postgres.conf:/etc/postgresql/postgresql.conf
   adminer:
     container_name: adminer
     image: adminer
@@ -74,7 +80,7 @@ services:
 
   pgrst:
     container_name: pgrst
-    image: postgrest/postgrest:v11.2.0
+    image: postgrest/postgrest:v12.0.2
     labels:
       - "traefik.http.routers.pgrst.rule=PathPrefix(`/pgrst`)"
       - "traefik.http.routers.pgrst.middlewares=stripprefix-pgrst@docker"
@@ -166,7 +172,6 @@ services:
       MINIO_NOTIFY_POSTGRES_MAX_OPEN_CONNECTIONS_PG: 2
       MINIO_NOTIFY_POSTGRES_QUEUE_DIR_PG: /opt/minio/events
       MINIO_NOTIFY_POSTGRES_QUEUE_LIMIT_PG: 100000
-
     volumes:
       - ./volumes/minio/mnt/data:/mnt/data
   leafog:
@@ -199,5 +204,3 @@ services:
       KC_ADMIN_PASS: ${KC_ADMIN_PASS}
       KC_URL: http://keycloak:8080/auth
       MINIO_CLIENT_SECRET: ${MINIO_CLIENT_SECRET}
-
-

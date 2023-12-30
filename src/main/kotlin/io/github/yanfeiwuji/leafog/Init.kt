@@ -218,11 +218,11 @@ class Init(
         if (hasRealm) {
             return
         }
-
         entityManager.createNativeQuery(
             """
                 create or replace view auth.user as
-                select u.username,
+                select u.id,
+                       u.username,
                        u.first_name,
                        u.last_name,
                        u.email,
@@ -238,9 +238,12 @@ class Init(
                          left join keycloak.user_attribute ua on ua.user_id = u.id
                 where r.name = '${KEYCLOAK_REALM_NAME}'
                 group by u.id;
-               
+                
+                comment on view auth."user" is e'@graphql({"primary_key_columns": ["id"]})';
             """.trimIndent()
+
         ).executeUpdate()
+
         initKcClientScope(keycloak)
         initKcMinioClient(keycloak)
         initKcTokenExChange(keycloak)
