@@ -204,3 +204,21 @@ services:
       KC_ADMIN_PASS: ${KC_ADMIN_PASS}
       KC_URL: http://keycloak:8080/auth
       MINIO_CLIENT_SECRET: ${MINIO_CLIENT_SECRET}
+  leafog-realtime:
+    container_name: realtime
+    image: leafog-realtime
+    labels:
+      - "traefik.http.routers.realtime.rule=PathPrefix(`/socket.io`)"
+      - "traefik.http.services.minio.loadbalancer.server.port=3000"
+    depends_on:
+      db:
+        condition: service_healthy
+      leafog:
+        condition: service_healthy
+    environment:
+      PG_PORT: ${PG_PORT}
+      PG_HOST: ${PG_HOST}
+      PG_DB: ${PG_DB}
+      PG_USER: ${PG_USER}
+      PG_PASS: ${PG_PASS}
+      JWK_URL: http://keycloak:8080/auth/realms/leafog/protocol/openid-connect/certs

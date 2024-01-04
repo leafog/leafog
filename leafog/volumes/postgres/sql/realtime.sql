@@ -1,3 +1,5 @@
-create publication leafog_realtime for all tables;
+create publication leafog_realtime;
 
 create schema leafog_realtime;
+
+

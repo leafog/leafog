@@ -94,3 +94,4 @@ grant all on function graphql.resolve to anon,account;
 -- init schemas --
 insert into postgrest.conf
 values ('pgrst.db_schemas', 'public,auth');
+
